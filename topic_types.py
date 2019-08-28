@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import pandas
 
@@ -105,7 +107,14 @@ def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None
     return low_weight_years, high_growth_years
 
 def main():
-    x = pandas.read_csv("topic_trends_per_year.csv")
+    # expects a csv with:
+    # topicid 	topicname 	year 	weight
+    try:
+        infile = sys.argv[1]
+    except:
+        infile = "topic_trends_per_year.csv"
+
+    x = pandas.read_csv(infile)
     x = x[x["year"] < 2020]
     topics = {}
     years_weights = {}
