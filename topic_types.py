@@ -1,7 +1,8 @@
 import numpy as np
 import pandas
 
-def check_safe_bet(topic_info, years_weights_stats, num_years=5):
+
+def check_safe_bet(topic_info, years_weights_stats, num_years=10):
     sorted_years = sorted(topic_info["years"].keys(), reverse=True)
     if num_years is not None:
         sorted_years = sorted_years[:num_years]
@@ -13,10 +14,12 @@ def check_safe_bet(topic_info, years_weights_stats, num_years=5):
             return False
     return True
 
-def check_hibernating(topic_info, years_weights_stats, policy = "full"):
+def check_hibernating(topic_info, years_weights_stats, min_g_years=None, policy="full"):
     sorted_years = sorted(topic_info["years"].keys(), reverse=True)
     checking_hibernation = True
     hyears, gyears = [], []
+    #
+    # below just for visualization / inverstigation
     hl = ["" for _ in sorted_years]
     weights = [topic_info["years"][year] for year in sorted_years]
     ymeans = [years_weights_stats[year]["mean"] for year in sorted_years]
@@ -25,8 +28,9 @@ def check_hibernating(topic_info, years_weights_stats, policy = "full"):
     increased_means = [m+s for (m,s) in zip(ymeans, ystds)]
     boolean_hibernate = [w < incr for (w,incr) in zip(weights,increased_means)]
     boolean_giant = [w > red for (w,red) in zip(weights,reduced_means)]
+    # above just for visualization / inverstigation
 
-    index = 0;
+    index = 0
     while index < len(sorted_years):
         year = sorted_years[index]
         weight = topic_info["years"][year]
@@ -51,12 +55,14 @@ def check_hibernating(topic_info, years_weights_stats, policy = "full"):
         index += 1
     if not gyears:
         return None
+    if min_g_years is not None and len(gyears) < min_g_years:
+        return None
     if policy == "full":
-        if hyears + gyears != sorted_years:
+        if (hyears + gyears) != sorted_years:
             return None
     return (gyears, hyears)
 
-def check_emerging(topic_info, years_w_stats, years_g_stats, policy="full"):
+def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None):
     # check a range with low topic weight wrt year average, if any
     low_weight_years = []
     high_growth_years = []
@@ -88,14 +94,19 @@ def check_emerging(topic_info, years_w_stats, years_g_stats, policy="full"):
             break
     if not low_weight_years:
         return None
-    if policy == "full":
+    if num_low_weight is None:
         # has to span the entire year
-        if not (high_growth_years + low_weight_years == sorted_years):
+        if not (high_growth_years + low_weight_years) == sorted_years:
+            return None
+    else:
+        # low weight years has to be enough
+        if len(low_weight_years) < num_low_weight:
             return None
     return low_weight_years, high_growth_years
 
 def main():
     x = pandas.read_csv("topic_trends_per_year.csv")
+    x = x[x["year"] < 2020]
     topics = {}
     years_weights = {}
     years_growths = {}
@@ -109,6 +120,7 @@ def main():
     # read
     for row in x.iterrows():
        topic, topicname, year, weight = row[-1]
+       year = int(year)
        if topic not in topics:
            topics[topic] = {"years":{}}
        topics[topic]["label"] = topicname
@@ -154,26 +166,40 @@ def main():
         topic_info = topics[t]
         topic_info["types"] = []
 
-        res = check_emerging(topic_info, years_weights_stats, years_growths_stats)
+        num_low_weight = 5
+        res = check_emerging(topic_info, years_weights_stats, years_growths_stats, num_low_weight)
         if res is not None:
             emergings.append(t)
             topic_info["types"].append("E")
-        if check_safe_bet(topic_info, years_weights_stats):
+        num_safe_years = 10
+        if check_safe_bet(topic_info, years_weights_stats, num_years=num_safe_years):
             safes.append(t)
             topic_info["types"].append("S")
-        if check_hibernating(topic_info, years_weights_stats):
+
+        min_g_years = None
+        policy="full"
+        if check_hibernating(topic_info, years_weights_stats, min_g_years,policy):
             hibernating.append(t)
             topic_info["types"].append("H")
 
-    print("Emerging")
+    print("Emerging: num low weight years {}".format(num_low_weight))
     for i, e in enumerate(emergings):
         print("{}/{} : {} {}".format(i+1, len(emergings), e, topics[e]["label"]))
-    print("Safe")
+        if i > 8:
+            print("...")
+            break
+    print("Safe: num safe years: {}".format(num_safe_years))
     for i, e in enumerate(safes):
         print("{}/{} : {} {}".format(i+1, len(safes), e, topics[e]["label"]))
-    print("Hibernating")
+        if i > 8:
+            print("...")
+            break
+    print("Hibernating: min giant years: {}, span policy: {}".format(min_g_years, policy))
     for i, e in enumerate(hibernating):
         print("{}/{} : {} {}".format(i+1, len(hibernating), e, topics[e]["label"]))
+        if i > 8:
+            print("...")
+            break
     print("Got {} emerging topics, {} hibernating: and {} safe bets".format(
         len(emergings), len(hibernating), len(safes)))
 
