@@ -175,7 +175,7 @@ def main():
         topic_info = topics[t]
         topic_info["types"] = []
 
-        num_low_weight = 5
+        num_low_weight = None
         res = check_emerging(topic_info, years_weights_stats, years_growths_stats, num_low_weight)
         if res is not None:
             emergings.append(t)
