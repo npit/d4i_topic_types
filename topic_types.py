@@ -10,13 +10,18 @@ def check_safe_bet(topic_info, years_weights_stats, num_years=None, stdev_w_coef
     sorted_years = sorted(topic_info["years"].keys(), reverse=True)
     if num_years is not None:
         sorted_years = sorted_years[:num_years]
+    thresh = []
+    years = []
     for year in sorted_years:
         weight = topic_info["years"][year]
         ymean, ystd = years_weights_stats[year]["mean"], years_weights_stats[year]["std"]
         ystd = ystd * stdev_w_coeff
+        thresh.append(ymean + ystd)
+        years.append(year)
         if weight < (ymean + ystd):
             # print("Topic not safe bet due to w {} on year {} with avg + std: {}".format(weight, year, ymean + ystd))
             return False
+    visualize_safe(topic_info, thresh, years)
     return True
 
 
@@ -130,12 +135,29 @@ def check_hibernating_flawed(topic_info, years_weights_stats, min_g_years=None, 
     visualize_hibernating(hyears, gyears, giant_threshold, hib_threshold,  topic_info)
     return (gyears, hyears)
 
-def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None, stdev_w_coeff=1, stdev_gr_coeff=1):
+def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None, min_num_high_growth=None, stdev_w_coeff=1, stdev_gr_coeff=1):
     # check a range with low topic weight wrt year average, if any
     low_weight_years = []
     high_growth_years = []
 
     sorted_years = sorted(topic_info["years"].keys(), reverse=True)
+
+    lw_thresh, hg_thresh = {}, {}
+    for year in sorted_years:
+        year_mean_weight = years_w_stats[year]['mean']
+        year_std_weight = years_w_stats[year]['std'] * stdev_w_coeff
+        lw_thresh[year] = year_mean_weight - year_std_weight
+
+
+
+        ymg = years_g_stats[year]['mean']
+        if ymg is None:
+            # 2004
+            hg_thresh[year] = 0
+            continue
+        ystdg = years_g_stats[year]['std'] * stdev_gr_coeff
+        hg_thresh[year] = ymg + ystdg
+
     for year in sorted_years:
         topic_growth = topic_info["growths"][year]
         year_mean_growth = years_g_stats[year]['mean']
@@ -162,6 +184,8 @@ def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None
             break
     if not low_weight_years:
         return None
+
+    # minimum region length checks
     if num_low_weight is None:
         # has to span the entire year
         if not (high_growth_years + low_weight_years) == sorted_years:
@@ -170,8 +194,16 @@ def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None
         # low weight years has to be enough
         if len(low_weight_years) < num_low_weight:
             return None
+
+    if min_num_high_growth is not None:
+        # high g years has to be enough
+        if len(high_growth_years) < min_num_high_growth:
+            return None
+
     low_weight_years.reverse()
     high_growth_years.reverse()
+
+    visualize_emerging(low_weight_years, high_growth_years, lw_thresh, hg_thresh, topic_info)
     return low_weight_years, high_growth_years
 
 def main():
@@ -255,6 +287,7 @@ def main():
         topic_info["types"] = []
 
         num_low_weight = None
+        min_num_high_growth = 5
         em_valid_range = [ 2015, 2016, 2017, 2018, 2019]
         # res = check_emerging(topic_info, years_weights_stats, years_growths_stats, num_low_weight,stdev_w_coeff=0)
         res = check_emerging(topic_info, years_weights_stats, years_growths_stats, num_low_weight, stdev_w_coeff=0.5)
@@ -264,7 +297,10 @@ def main():
                 emergings.append((t, res))
                 topic_info["types"].append("E")
         num_safe_years = None
-        if check_safe_bet(topic_info, years_weights_stats, num_years=num_safe_years):
+        safebet_coeff = 1
+        # res = check_safe_bet(topic_info, years_weights_stats, num_years=num_safe_years, stdev_w_coeff=safebet_coeff):
+        res = None
+        if res:
             safes.append(t)
             topic_info["types"].append("S")
 
@@ -275,7 +311,8 @@ def main():
         visualize = None
         visualize = "show" # "write"
         visualize = "write" 
-        g_h_years = check_hibernating(topic_info, years_weights_stats, min_g_years,policy, stdev_w_coeff=coeff, valid_range=hi_valid_range, do_visualize=visualize)
+        # g_h_years = check_hibernating(topic_info, years_weights_stats, min_g_years,policy, stdev_w_coeff=coeff, valid_range=hi_valid_range, do_visualize=visualize)
+        g_h_years = None
         if g_h_years is not None:
             hibernating.append((t, g_h_years))
             topic_info["types"].append("H")
@@ -288,13 +325,13 @@ def main():
         # if i > 8:
         #     print("...")
         #     break
-    print("Safe: num safe years: {}".format(num_safe_years))
+    print("Safe: num safe years: {}, coeff: {}".format(num_safe_years, safebet_coeff))
     for i, e in enumerate(sorted(safes)):
         print("{}/{} : {} {}".format(i+1, len(safes), e, topics[e]["label"]))
         # if i > 8:
         #     print("...")
         #     break
-    print("Hibernating: min giant years: {}, span policy: {}, range: {}".format(min_g_years, policy, hi_valid_range))
+        print("Hibernating: min giant years: {}, span policy: {}, range: {}, stdev coeff: {}".format(min_g_years, policy, hi_valid_range, coeff))
     for i, e in enumerate(sorted(hibernating, key=lambda x: x[0])):
         topic, gh_years = e
         giants, hibers = gh_years
@@ -430,7 +467,103 @@ def visualize_hibernating(hyears, gyears, giant_threshold, hib_threshold, topic_
         print("Visualization", output, "undefined")
         exit(1)
 
-    print()
+def visualize_safe(topic_info, thresh, years, output="show"):
+    plt.figure()
+    topic_index = topic_info["index"]
+    name = topic_info["label"]
+    topic_name = "{}: {}".format(topic_index, name)
+
+    xidx = list(range(len(years)))
+    under, over = [], []
+    for i, year in enumerate(years):
+        w = topic_info["years"][year]
+        if w < thresh[i]:
+            under.append((i, w))
+        else:
+            over.append((i, w))
+
+
+    # thresh
+    plt.plot(xidx, thresh,'r')
+    # hibernating upper limit
+    plt.plot(*zip(*over))
+    # hibernating upper limit
+    plt.plot(*zip(*under))
+    leg = ["safe threshold", "over", "under"]
+    # year mean
+    # plt.plot(xidx, [year_means[year] for year in years],'--')
+    
+    plt.legend(leg)
+    plt.title(topic_name)
+    plt.xticks(ticks=range(len(years)), labels=years, rotation='vertical')
+    if output == "show":
+        plt.show()
+    elif output == "write":
+        outpath = topic_name.replace("/","_") + ".png"
+        print("Writing to", outpath)
+        plt.savefig(outpath)
+    else:
+        print("Visualization", output, "undefined")
+        exit(1)
+
+def visualize_emerging(low_weight_years, high_growth_years, lw_thresh, hg_thresh, topic_info, output="show"):
+    print(low_weight_years, high_growth_years)
+    ax_gr = plt.subplot(211)
+    ax_we = plt.subplot(212, sharex=ax_gr)
+
+    topic_index = topic_info["index"]
+    name = topic_info["label"]
+    topic_name = "{}: {}".format(topic_index, name)
+
+    years = sorted(lw_thresh.keys())
+
+    xidx = list(range(len(years)))
+    ax_we.plot(xidx, [lw_thresh[y] for y in years])
+    ax_gr.plot(xidx, [hg_thresh[y] for y in years])
+
+    lw, hw, lg, hg = [], [], [], []
+    for i, year in enumerate(years):
+        w = topic_info["years"][year]
+        if w < lw_thresh[year]:
+            lw.append((i, w))
+        else:
+            hw.append((i, w))
+
+        g = topic_info["growths"][year]
+        if year == 2004:
+            continue
+        if g > hg_thresh[year]:
+            hg.append((i, g))
+        else:
+            lg.append((i, g))
+
+    # hibernating upper limit
+    ax_we.plot(*zip(*lw),"*")
+    ax_we.plot(*zip(*hw),"*")
+    # hibernating upper limit
+    ax_gr.plot(*zip(*lg),"*")
+    ax_gr.plot(*zip(*hg),"*")
+
+    leg_we = ["low weight threshold","lw topic", "hw topic"]
+    leg_gr = ["high growth threshold", "lg topic", "hg topic"]
+    # the cutoff
+    ax_we.axvline(years.index(low_weight_years[-1]))
+    ax_gr.legend(leg_gr)
+    ax_we.legend(leg_we)
+    
+    ax_gr.set_title(topic_name)
+    ax_we.set_title(topic_name)
+    plt.xticks(ticks=range(len(years)), labels=years, rotation='vertical')
+    # ax_we.xticks(ticks=range(len(years)), labels=years, rotation='vertical')
+    if output == "show":
+        plt.show()
+    elif output == "write":
+        outpath = topic_name.replace("/","_") + ".png"
+        print("Writing to", outpath)
+        plt.savefig(outpath)
+    else:
+        print("Visualization", output, "undefined")
+        exit(1)
 
 
 if __name__ == '__main__':
