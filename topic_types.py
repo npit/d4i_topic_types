@@ -39,7 +39,8 @@ def check_hibernating(topic_info, years_weights_stats, min_g_years=None, policy=
         ymean, ystd = years_weights_stats[year]["mean"], years_weights_stats[year]["std"]
         ystd = ystd * stdev_w_coeff
         fluctuation_term = ystd
-        giant_threshold[year], hib_threshold[year] = ymean - fluctuation_term, ymean + fluctuation_term
+        # giant_threshold[year], hib_threshold[year] = ymean - fluctuation_term, ymean + fluctuation_term
+        giant_threshold[year], hib_threshold[year] = ymean + fluctuation_term, ymean - fluctuation_term
         year_means[year] = ymean
         year_flucts[year] = fluctuation_term
 
@@ -135,7 +136,7 @@ def check_hibernating_flawed(topic_info, years_weights_stats, min_g_years=None, 
     visualize_hibernating(hyears, gyears, giant_threshold, hib_threshold,  topic_info)
     return (gyears, hyears)
 
-def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None, min_num_high_growth=None, stdev_w_coeff=1, stdev_gr_coeff=1):
+def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None, min_num_high_growth=None, stdev_w_coeff=1, stdev_gr_coeff=1, consecutive_growth_years=False):
     # check a range with low topic weight wrt year average, if any
     low_weight_years = []
     high_growth_years = []
@@ -196,9 +197,14 @@ def check_emerging(topic_info, years_w_stats, years_g_stats, num_low_weight=None
             return None
 
     if min_num_high_growth is not None:
-        # high g years has to be enough
-        if len(high_growth_years) < min_num_high_growth:
-            return None
+        # gotta be the last year sequence
+        if consecutive_growth_years:
+            if not high_growth_years[-min_num_high_growth:] == sorted_years[:min_num_high_growth]:
+                return None
+        else:
+            # high g years has to be enough
+            if len(high_growth_years) < min_num_high_growth:
+                return None
 
     low_weight_years.reverse()
     high_growth_years.reverse()
@@ -287,10 +293,11 @@ def main():
         topic_info["types"] = []
 
         num_low_weight = None
-        min_num_high_growth = 5
-        em_valid_range = [ 2015, 2016, 2017, 2018, 2019]
+        min_num_high_growth = 4
+        em_valid_range = [ 2014, 2016, 2017, 2018, 2019]
         # res = check_emerging(topic_info, years_weights_stats, years_growths_stats, num_low_weight,stdev_w_coeff=0)
-        res = check_emerging(topic_info, years_weights_stats, years_growths_stats, num_low_weight, stdev_w_coeff=0.5)
+        # res = check_emerging(topic_info, years_weights_stats, years_growths_stats, num_low_weight, min_num_high_growth=min_num_high_growth, stdev_w_coeff=0.5, consecutive_growth_years=True)
+        res = None
         if res is not None:
             low, high = res
             if not em_valid_range or (low[-1] in em_valid_range or high[0] in em_valid_range):
@@ -298,7 +305,7 @@ def main():
                 topic_info["types"].append("E")
         num_safe_years = None
         safebet_coeff = 1
-        # res = check_safe_bet(topic_info, years_weights_stats, num_years=num_safe_years, stdev_w_coeff=safebet_coeff):
+        # res = check_safe_bet(topic_info, years_weights_stats, num_years=num_safe_years, stdev_w_coeff=safebet_coeff)
         res = None
         if res:
             safes.append(t)
@@ -307,17 +314,17 @@ def main():
         min_g_years = None
         policy="full"
         hi_valid_range = list(range(2011, 2013+1))
-        coeff = 0.5
+        coeff = 0.75
         visualize = None
         visualize = "show" # "write"
-        visualize = "write" 
-        # g_h_years = check_hibernating(topic_info, years_weights_stats, min_g_years,policy, stdev_w_coeff=coeff, valid_range=hi_valid_range, do_visualize=visualize)
-        g_h_years = None
+        visualize = "write"
+        g_h_years = check_hibernating(topic_info, years_weights_stats, min_g_years,policy, stdev_w_coeff=coeff, valid_range=hi_valid_range, do_visualize=visualize)
+        # g_h_years = None
         if g_h_years is not None:
             hibernating.append((t, g_h_years))
             topic_info["types"].append("H")
 
-    print("Emerging: num low weight years {}, range: {}".format(num_low_weight, em_valid_range))
+    print("Emerging: num low weight years: {}, min high growth rate years: {}, range: {}".format(num_low_weight, min_num_high_growth, em_valid_range))
     for i, e in enumerate(sorted(emergings)):
         topic = e[0]
         last_low = e[1][0][-1]
@@ -331,7 +338,7 @@ def main():
         # if i > 8:
         #     print("...")
         #     break
-        print("Hibernating: min giant years: {}, span policy: {}, range: {}, stdev coeff: {}".format(min_g_years, policy, hi_valid_range, coeff))
+    print("Hibernating: stdev coeff: {}, range: {}".format(num_safe_years, coeff, hi_valid_range))
     for i, e in enumerate(sorted(hibernating, key=lambda x: x[0])):
         topic, gh_years = e
         giants, hibers = gh_years
@@ -460,14 +467,14 @@ def visualize_hibernating(hyears, gyears, giant_threshold, hib_threshold, topic_
     if output == "show":
         plt.show()
     elif output == "write":
-        outpath = topic_name.replace("/","_") + ".png"
-        print("Writing to", outpath)
+        outpath = "hibernating_" + topic_name.replace("/","_") + ".png"
+        # print("Writing to", outpath)
         plt.savefig(outpath)
     else:
         print("Visualization", output, "undefined")
         exit(1)
 
-def visualize_safe(topic_info, thresh, years, output="show"):
+def visualize_safe(topic_info, thresh, years, output="write"):
     plt.figure()
     topic_index = topic_info["index"]
     name = topic_info["label"]
@@ -499,19 +506,22 @@ def visualize_safe(topic_info, thresh, years, output="show"):
     if output == "show":
         plt.show()
     elif output == "write":
-        outpath = topic_name.replace("/","_") + ".png"
-        print("Writing to", outpath)
+        outpath = "safe_" + topic_name.replace("/","_") + ".png"
+        # print("Writing to", outpath)
         plt.savefig(outpath)
     else:
         print("Visualization", output, "undefined")
         exit(1)
 
-def visualize_emerging(low_weight_years, high_growth_years, lw_thresh, hg_thresh, topic_info, output="show"):
-    print(low_weight_years, high_growth_years)
+def visualize_emerging(low_weight_years, high_growth_years, lw_thresh, hg_thresh, topic_info, output="write"):
+    # print(low_weight_years, high_growth_years)
+    plt.figure()
     ax_gr = plt.subplot(211)
     ax_we = plt.subplot(212, sharex=ax_gr)
 
     topic_index = topic_info["index"]
+    # if topic_index == 370:
+    # print()
     name = topic_info["label"]
     topic_name = "{}: {}".format(topic_index, name)
 
@@ -538,11 +548,15 @@ def visualize_emerging(low_weight_years, high_growth_years, lw_thresh, hg_thresh
             lg.append((i, g))
 
     # hibernating upper limit
-    ax_we.plot(*zip(*lw),"*")
-    ax_we.plot(*zip(*hw),"*")
+    if lw:
+        ax_we.plot(*zip(*lw),"*")
+    if hw:
+        ax_we.plot(*zip(*hw),"*")
     # hibernating upper limit
-    ax_gr.plot(*zip(*lg),"*")
-    ax_gr.plot(*zip(*hg),"*")
+    if lg:
+        ax_gr.plot(*zip(*lg),"*")
+    if hg:
+        ax_gr.plot(*zip(*hg),"*")
 
     leg_we = ["low weight threshold","lw topic", "hw topic"]
     leg_gr = ["high growth threshold", "lg topic", "hg topic"]
@@ -552,14 +566,14 @@ def visualize_emerging(low_weight_years, high_growth_years, lw_thresh, hg_thresh
     ax_we.legend(leg_we)
     
     ax_gr.set_title(topic_name)
-    ax_we.set_title(topic_name)
+    # ax_we.set_title(topic_name)
     plt.xticks(ticks=range(len(years)), labels=years, rotation='vertical')
     # ax_we.xticks(ticks=range(len(years)), labels=years, rotation='vertical')
     if output == "show":
         plt.show()
     elif output == "write":
-        outpath = topic_name.replace("/","_") + ".png"
-        print("Writing to", outpath)
+        outpath = "emerging_" + topic_name.replace("/","_") + ".png"
+        # print("Writing to", outpath)
         plt.savefig(outpath)
     else:
         print("Visualization", output, "undefined")
